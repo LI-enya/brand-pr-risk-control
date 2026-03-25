@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brand PR Risk Control</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <h1 data-i18n="title">Brand PR Risk Control</h1>
+      </div>
+      <span class="scan-status" id="scanStatus">
+        <span class="status-dot"></span>
+        <span id="lastUpdate"></span>
+      </span>
+    </div>
+    <div class="header-right">
+      <div class="lang-switch">
+        <button class="lang-btn active" data-lang="ja" onclick="setLang('ja')">日本語</button>
+        <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">中文</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="stats-grid" id="statsGrid">
+    <div class="stat-card stat-total">
+      <div class="stat-icon">📊</div>
+      <div class="stat-info">
+        <span class="stat-value" id="statTotal">0</span>
+        <span class="stat-label" data-i18n="total_mentions">総メンション数</span>
+      </div>
+    </div>
+    <div class="stat-card stat-negative">
+      <div class="stat-icon">🚨</div>
+      <div class="stat-info">
+        <span class="stat-value" id="statNegative">0</span>
+        <span class="stat-label" data-i18n="negative_mentions">ネガティブ</span>
+      </div>
+    </div>
+    <div class="stat-card stat-valuable">
+      <div class="stat-icon">⭐</div>
+      <div class="stat-info">
+        <span class="stat-value" id="statValuable">0</span>
+        <span class="stat-label" data-i18n="valuable_mentions">要対応</span>
+      </div>
+    </div>
+    <div class="stat-card stat-unread">
+      <div class="stat-icon">📬</div>
+      <div class="stat-info">
+        <span class="stat-value" id="statUnread">0</span>
+        <span class="stat-label" data-i18n="unread_mentions">未読</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="filter-bar">
+    <div class="filter-group">
+      <label data-i18n="brand">ブランド</label>
+      <select id="filterBrand" onchange="applyFilters()">
+        <option value="" data-i18n="all_brands">全ブランド</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label data-i18n="channel">チャネル</label>
+      <select id="filterChannel" onchange="applyFilters()">
+        <option value="" data-i18n="all_channels">全チャネル</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label data-i18n="sentiment">感情</label>
+      <select id="filterSentiment" onchange="applyFilters()">
+        <option value="" data-i18n="all_sentiments">全て</option>
+        <option value="very_negative" data-i18n="very_negative">深刻なネガティブ</option>
+        <option value="negative" data-i18n="neg">ネガティブ</option>
+        <option value="neutral" data-i18n="neutral_opt">中立</option>
+        <option value="positive" data-i18n="pos">ポジティブ</option>
+        <option value="very_positive" data-i18n="very_positive">非常にポジティブ</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label data-i18n="filter_type">フィルタ</label>
+      <select id="filterValuable" onchange="applyFilters()">
+        <option value="" data-i18n="all">全て</option>
+        <option value="1" data-i18n="valuable_only">要対応のみ</option>
+        <option value="relevant" data-i18n="relevant_only">関連のみ</option>
+        <option value="noise" data-i18n="noise_only">ノイズのみ</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label data-i18n="date_type">日付種別</label>
+      <select id="filterDateType" onchange="applyFilters()">
+        <option value="found" data-i18n="date_found">発見日</option>
+        <option value="published" data-i18n="date_published">公開日</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label data-i18n="date_from">開始日</label>
+      <input type="date" id="filterDateFrom" onchange="applyFilters()">
+    </div>
+    <div class="filter-group">
+      <label data-i18n="date_to">終了日</label>
+      <input type="date" id="filterDateTo" onchange="applyFilters()">
+    </div>
+    <div class="filter-group">
+      <label data-i18n="search">検索</label>
+      <input type="text" id="filterSearch" placeholder="キーワード..." oninput="debounceSearch()">
+    </div>
+  </section>
+
+  <section class="brand-overview" id="brandOverview">
+    <h2 data-i18n="brand_overview">ブランド別概要</h2>
+    <div class="brand-cards" id="brandCards"></div>
+  </section>
+
+  <section class="mentions-section">
+    <div class="mentions-header">
+      <h2 data-i18n="mentions_list">メンション一覧</h2>
+      <span class="mentions-count" id="mentionsCount"></span>
+    </div>
+    <div class="mentions-list" id="mentionsList">
+      <div class="loading" data-i18n="loading">読み込み中...</div>
+    </div>
+    <div class="load-more" id="loadMore" style="display:none">
+      <button class="btn" onclick="loadMore()" data-i18n="load_more">もっと見る</button>
+    </div>
+  </section>
+
+  <section class="scan-history">
+    <h2 data-i18n="scan_history">スキャン履歴</h2>
+    <div class="scan-logs" id="scanLogs"></div>
+  </section>
+
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modalTitle"></h3>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
