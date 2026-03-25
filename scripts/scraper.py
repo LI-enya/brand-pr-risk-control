@@ -167,43 +167,55 @@ def scrape_google(brand):
     return results
 
 def scrape_google_site(brand, site, channel):
-    """Search a specific platform via Google site: operator."""
+    """Search a specific platform via Google site: operator. Uses multiple keywords."""
     results = []
-    keyword = brand['keywords'][0]
-    _delay(4)
-    query = urllib.parse.quote(f'site:{site} {keyword}')
-    url = f'https://www.google.co.jp/search?q={query}&hl=ja&num=15'
-    html = _safe_get(url, retries=1)
-    if not html:
-        return results
-
-    soup = BeautifulSoup(html, 'html.parser')
-    for div in soup.select('div.g, div[data-sokoban-container]'):
-        link_el = div.select_one('a[href^="http"]')
-        if not link_el:
+    # For SNS searches, use brand name variants (not category-combined keywords)
+    # because SNS context is already specific enough
+    sns_keywords = []
+    for kw in brand['keywords']:
+        # Extract just the brand name part (before any space-separated category word)
+        base = kw.split()[0] if ' ' in kw else kw
+        if base and base not in sns_keywords:
+            sns_keywords.append(base)
+    # Also add full nameJa
+    if brand.get('nameJa') and brand['nameJa'] not in sns_keywords:
+        sns_keywords.append(brand['nameJa'])
+    # Use up to 3 keywords
+    for keyword in sns_keywords[:3]:
+        _delay(4)
+        query = urllib.parse.quote(f'site:{site} {keyword}')
+        url = f'https://www.google.co.jp/search?q={query}&hl=ja&num=15'
+        html = _safe_get(url, retries=1)
+        if not html:
             continue
-        href = link_el.get('href', '')
-        if 'google.' in href or site.split(' ')[0] not in href.lower():
-            continue
 
-        title_el = div.select_one('h3')
-        title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
-        snippet_el = div.select_one('div.VwiC3b, span.aCOpRe')
-        snippet = snippet_el.get_text(strip=True) if snippet_el else ''
-        full_text = f"{title} {snippet}"
+        soup = BeautifulSoup(html, 'html.parser')
+        for div in soup.select('div.g, div[data-sokoban-container]'):
+            link_el = div.select_one('a[href^="http"]')
+            if not link_el:
+                continue
+            href = link_el.get('href', '')
+            if 'google.' in href or site.split(' ')[0] not in href.lower():
+                continue
 
-        try:
-            host = urllib.parse.urlparse(href).hostname or ''
-        except Exception:
-            host = ''
+            title_el = div.select_one('h3')
+            title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
+            snippet_el = div.select_one('div.VwiC3b, span.aCOpRe')
+            snippet = snippet_el.get_text(strip=True) if snippet_el else ''
+            full_text = f"{title} {snippet}"
 
-        published = _extract_date(full_text)
-        results.append({
-            'brand_id': brand['id'], 'channel': channel,
-            'title': title[:200], 'content': (snippet or title)[:500],
-            'url': href, 'author': host,
-            'found_at': _now(), 'published_at': published
-        })
+            try:
+                host = urllib.parse.urlparse(href).hostname or ''
+            except Exception:
+                host = ''
+
+            published = _extract_date(full_text)
+            results.append({
+                'brand_id': brand['id'], 'channel': channel,
+                'title': title[:200], 'content': (snippet or title)[:500],
+                'url': href, 'author': host,
+                'found_at': _now(), 'published_at': published
+            })
     return results
 
 # ====== Yahoo Japan Search ======
@@ -231,9 +243,22 @@ def scrape_yahoo_search(brand):
             text = a.get_text(strip=True)
             if not (href.startswith('http') and text and len(text) > 10):
                 continue
-            if 'yahoo' in href.lower() or 'bing' in href.lower():
+            if 'yahoo' in href.lower() and 'search.yahoo.co.jp/r/' not in href:
                 continue
-            if href in seen_urls or 'search.yahoo.co.jp/r/' in href:
+            if 'bing' in href.lower():
+                continue
+            # Resolve Yahoo redirect URLs
+            if 'search.yahoo.co.jp/r/' in href:
+                try:
+                    parsed = urllib.parse.urlparse(href)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    if 'u' in qs:
+                        href = qs['u'][0]
+                    else:
+                        continue
+                except Exception:
+                    continue
+            if href in seen_urls:
                 continue
             seen_urls.add(href)
             try:
@@ -256,7 +281,8 @@ def scrape_yahoo_search(brand):
 def scrape_yahoo_site(brand, site, channel):
     """Search specific platforms via Yahoo Japan site: operator."""
     results = []
-    keyword = brand['keywords'][0]
+    # Use brand name (not category-combined) for SNS searches
+    keyword = brand['keywords'][0].split()[0] if ' ' in brand['keywords'][0] else brand['keywords'][0]
     _delay(2)
     query = urllib.parse.quote(f'site:{site} {keyword}')
     url = f'https://search.yahoo.co.jp/search?p={query}&ei=UTF-8'
@@ -275,9 +301,18 @@ def scrape_yahoo_site(brand, site, channel):
         text = a.get_text(strip=True)
         if not (href.startswith('http') and text and len(text) > 10):
             continue
-        if site.split(' ')[0] not in href.lower() or href in seen_urls:
-            continue
+        # Resolve Yahoo redirect URLs
         if 'search.yahoo.co.jp/r/' in href:
+            try:
+                parsed = urllib.parse.urlparse(href)
+                qs = urllib.parse.parse_qs(parsed.query)
+                if 'u' in qs:
+                    href = qs['u'][0]
+                else:
+                    continue
+            except Exception:
+                continue
+        if site.split(' ')[0] not in href.lower() or href in seen_urls:
             continue
         seen_urls.add(href)
         try:
@@ -385,12 +420,11 @@ def scrape_all_brands(brand):
         print(f"  Threads: {len(r)}")
 
         # 5. Yahoo site: searches (backup for social platforms)
-        r = scrape_yahoo_site(brand, 'twitter.com', 'twitter')
-        _add_results(r)
-        r = scrape_yahoo_site(brand, 'instagram.com', 'instagram')
-        _add_results(r)
-        r = scrape_yahoo_site(brand, 'youtube.com', 'youtube')
-        _add_results(r)
+        for ysite, ych in [('twitter.com', 'twitter'), ('instagram.com', 'instagram'),
+                           ('youtube.com', 'youtube'), ('facebook.com', 'facebook'),
+                           ('threads.net', 'threads')]:
+            r = scrape_yahoo_site(brand, ysite, ych)
+            _add_results(r)
         print(f"  Yahoo site: backups added")
 
     except Exception as e:
